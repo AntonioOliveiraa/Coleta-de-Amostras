@@ -24,23 +24,32 @@ float tempDHT, humiDHT;
 const char* ssid = "ESP32_Point";
 const char* password = "password_1234";
 
-// Coisas do Web Server
+// Coisas do Web Server =============
 AsyncWebServer server(80);
 
-// Coisas do Botão Push
-#define BUTTON_PIN 18
+// Coisas do Botão Push =============
+#define BUTTON_PIN 19
 bool buttonPressed = false;
 
 // Variável para contar as amostras
 int sampleCount = 0;
+const int maxSamples = 1000;  // Limita o número de amostras no arquivo CSV
 
 // Função para salvar dados em CSV
 void saveDataToCSV(float data1, float data2, float data3) {
+  // Reseta o arquivo CSV se ultrapassar o limite de amostras
+  if (sampleCount >= maxSamples) {
+    SPIFFS.remove("/data.csv");  // Apaga o arquivo CSV antigo
+    sampleCount = 0;
+    Serial.println("CSV file reset after 1000 samples");
+  }
+
   File file = SPIFFS.open("/data.csv", FILE_APPEND);
   if (!file) {
     Serial.println("Failed to open file for appending");
     return;
   }
+
   // Incrementa o contador de amostras
   sampleCount++;
 
@@ -50,17 +59,26 @@ void saveDataToCSV(float data1, float data2, float data3) {
   Serial.printf("Data saved to CSV: %d, %f, %f, %f\n", sampleCount, data1, data2, data3);
 }
 
-// Função para lidar com o botão push
+// Função para cuidar com o botão push (com debounce)
 void IRAM_ATTR handleButtonPress() {
-  buttonPressed = true;
+  static unsigned long lastPress = 0;
+  if (millis() - lastPress > 200) {  // Debounce de 200ms
+    buttonPressed = true;
+    lastPress = millis();
+  }
 }
 
 // Função para configurar o WiFi e o servidor
 void setupWiFiAndServer() {
   WiFi.softAP(ssid, password);
   IPAddress IP = WiFi.softAPIP();
-  Serial.print("AP IP address: ");
-  Serial.println(IP);
+  if (IP) {
+    Serial.print("AP IP address: ");
+    Serial.println(IP);
+  } else {
+    Serial.println("Failed to start WiFi AP");
+    return;
+  }
 
   // Inicia o mDNS
   if (MDNS.begin("iot-lea")) {
@@ -81,8 +99,8 @@ void setup() {
   sensors.begin();
   dht.begin();
 
-  // Initialize SPIFFS
-  if (!SPIFFS.begin()) {
+  // Initializa SPIFFS (com formatação automática em caso de falha)
+  if (!SPIFFS.begin(true)) {
     Serial.println("An error occurred while mounting SPIFFS");
     return;
   }
@@ -93,15 +111,19 @@ void setup() {
 }
 
 void loop() {
-  // Leitura dos sensores
+  // Leitura dos sensores com tentativas de repetição para o DHT
   sensors.requestTemperatures();
   tempDS18B20 = sensors.getTempCByIndex(0);
 
-  tempDHT = dht.readTemperature();
-  humiDHT = dht.readHumidity();
+  for (int i = 0; i < 3; i++) {
+    tempDHT = dht.readTemperature();
+    humiDHT = dht.readHumidity();
+    if (!isnan(humiDHT) && !isnan(tempDHT)) break;
+    delay(1000);  // Tenta novamente após 1 segundo
+  }
 
   if (isnan(humiDHT) || isnan(tempDHT)) {
-    Serial.println(F("Failed to read from DHT sensor!"));
+    Serial.println(F("Failed to read from DHT sensor after 3 attempts!"));
     return;
   }
 
