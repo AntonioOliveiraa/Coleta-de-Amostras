@@ -32,6 +32,7 @@ AsyncWebServer server(80);
 // Variável para contar as amostras
 int sampleCount = 0;
 const int maxSamples = 1000;  // Limita o número de amostras no arquivo CSV
+bool doRead = true; // Configura o estado para leitura
 
 // Variáveis para controle de tempo de coleta das amostras
 unsigned long lastReadingTime = 0; // Armazena o tempo da última leitura
@@ -112,6 +113,7 @@ String removeCSVFile(String filename){
   if (SPIFFS.exists(filename)) { // Verifica se o arquivo existe
     if (SPIFFS.remove(filename)) { // Romove o arquivo passado
       Serial.println("File removed");
+      sampleCount = 0;
       return "File removed";
     } else {
       Serial.println("Failed to remove file");
@@ -142,12 +144,30 @@ void setupWiFiAndServer() {
 
   // Rota para download do arquivo CSV
   server.on("/download", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/data.csv", "text/csv");
+    if(SPIFFS.exists("/data.csv")) {
+      request->send(SPIFFS, "/data.csv", "text/csv");
+    } else {
+      request->send(404, "text/plain", "File not found");
+    }
   });
   
   // Rota para apagar do arquivo CSV
   server.on("/remove", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", removeCSVFile("/data.csv").c_str());
+  });
+
+  // Rota para parar as coletas
+  server.on("/stop", HTTP_GET, [](AsyncWebServerRequest *request) {
+    doRead = false;
+    Serial.println("Parando a leitura dos sensores...");
+    request->send(200, "text/plain", "Data collection stopped");
+  });
+
+  // Rota para iniciar as coletas
+  server.on("/start", HTTP_GET, [](AsyncWebServerRequest *request) {
+    doRead = true;
+    Serial.println("Retomando a leitura dos sensores...");
+    request->send(200, "text/plain", "Data collection started successfully");
   });
 
   server.begin();
@@ -174,8 +194,10 @@ void setup() {
 }
 
 void loop() {
-  // Faz a leitura dos sensores
-  sensorReading();
+  if(doRead == true) { // Verifica se deve fazer a leitura dos sensores
+    // Faz a leitura dos sensores
+    sensorReading();
+  }
 
   // Verifica se o botão foi pressionado
   if (buttonPressed) {
@@ -184,11 +206,13 @@ void loop() {
     if (digitalRead(2) == HIGH) {
       Serial.println("Button pressed! Turn off WiFi and Web Server.");
       digitalWrite(2, LOW);
+      doRead = true;
       WiFi.softAPdisconnect(true); // Desliga o WiFi
       server.end(); // Desliga o web server
     } else {
-      Serial.println("Button pressed! CSV file available for download.");
+      Serial.println("Button pr/essed! CSV file available for download.");
       digitalWrite(2, HIGH);
+      doRead = false;
       setupWiFiAndServer(); // Liga o WiFi e inicia o web server
     }
   }
