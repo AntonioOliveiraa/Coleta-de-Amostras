@@ -39,6 +39,31 @@ const int maxSamples = 1000;  // Limita o número de amostras no arquivo CSV
 unsigned long lastReadingTime = 0; // Armazena o tempo da última leitura
 const long readingInterval = 5000; // Intervalo de 5 segundos
 
+
+// Função para salvar dados em CSV
+void saveDataToCSV(float data1, float data2, float data3) {
+  // Reseta o arquivo CSV se ultrapassar o limite de amostras
+  if (sampleCount >= maxSamples) {
+    SPIFFS.remove("/data.csv");  // Apaga o arquivo CSV antigo
+    sampleCount = 0;
+    Serial.println("CSV file reset after 1000 samples");
+  }
+
+  File file = SPIFFS.open("/data.csv", FILE_APPEND);
+  if (!file) {
+    Serial.println("Failed to open file for appending");
+    return;
+  }
+
+  // Incrementa o contador de amostras
+  sampleCount++;
+
+  // Salva os dados no formato: contagem, dado1, dado2, dado3
+  file.printf("%d,%f,%f,%f\n", sampleCount, data1, data2, data3);
+  file.close();
+  Serial.printf("Data saved to CSV: %d, %f, %f, %f\n", sampleCount, data1, data2, data3);
+}
+
 void sensorReading() {
   unsigned long currentMillis = millis(); // Captura o tempo atual
 
@@ -70,31 +95,10 @@ void sensorReading() {
     Serial.print(" °C, Humidity: ");
     Serial.print(humiDHT);
     Serial.println(" %");
+
+    // Salva os dados em CSV
+    saveDataToCSV(tempDS18B20, tempDHT, humiDHT);
   }
-}
-
-// Função para salvar dados em CSV
-void saveDataToCSV(float data1, float data2, float data3) {
-  // Reseta o arquivo CSV se ultrapassar o limite de amostras
-  if (sampleCount >= maxSamples) {
-    SPIFFS.remove("/data.csv");  // Apaga o arquivo CSV antigo
-    sampleCount = 0;
-    Serial.println("CSV file reset after 1000 samples");
-  }
-
-  File file = SPIFFS.open("/data.csv", FILE_APPEND);
-  if (!file) {
-    Serial.println("Failed to open file for appending");
-    return;
-  }
-
-  // Incrementa o contador de amostras
-  sampleCount++;
-
-  // Salva os dados no formato: contagem, dado1, dado2, dado3
-  file.printf("%d,%f,%f,%f\n", sampleCount, data1, data2, data3);
-  file.close();
-  Serial.printf("Data saved to CSV: %d, %f, %f, %f\n", sampleCount, data1, data2, data3);
 }
 
 // Função para cuidar com o botão push (com debounce)
@@ -147,6 +151,7 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   attachInterrupt(BUTTON_PIN, handleButtonPress, FALLING);
 
+  // Configuração do LED
   pinMode(2, OUTPUT);
 }
 
@@ -154,20 +159,19 @@ void loop() {
   // Faz a leitura dos sensores
   sensorReading();
 
-  // Salva os dados em CSV
-  // saveDataToCSV(tempDS18B20, tempDHT, humiDHT);
-
   // Verifica se o botão foi pressionado
   if (buttonPressed) {
     buttonPressed = false;
-    // Configura WiFi e servidor web
-    // setupWiFiAndServer();
-    Serial.println("Button pressed! CSV file available for download.");
 
     if (digitalRead(2) == HIGH) {
+      Serial.println("Button pressed! Turn off WiFi and Web Server.");
       digitalWrite(2, LOW);
+      WiFi.softAPdisconnect(true); // Desliga o WiFi
+      server.end(); // Desliga o web server
     } else {
+      Serial.println("Button pressed! CSV file available for download.");
       digitalWrite(2, HIGH);
+      setupWiFiAndServer(); // Liga o WiFi e inicia o web server
     }
   }
 }
