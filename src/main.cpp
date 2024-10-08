@@ -20,20 +20,58 @@ float tempDS18B20;
 DHT dht(DHTPIN, DHTTYPE);
 float tempDHT, humiDHT;
 
+// Coisas do Botão Push =============
+#define BUTTON_PIN 19
+bool buttonPressed = false;
+
 // Coisas do WiFi ===================
-const char* ssid = "ESP32_Point";
+const char* ssid = "ESP32_AP";
 const char* password = "password_1234";
 
 // Coisas do Web Server =============
 AsyncWebServer server(80);
 
-// Coisas do Botão Push =============
-#define BUTTON_PIN 19
-bool buttonPressed = false;
-
 // Variável para contar as amostras
 int sampleCount = 0;
 const int maxSamples = 1000;  // Limita o número de amostras no arquivo CSV
+
+// Variáveis para controle de tempo de coleta das amostras
+unsigned long lastReadingTime = 0; // Armazena o tempo da última leitura
+const long readingInterval = 5000; // Intervalo de 5 segundos
+
+void sensorReading() {
+  unsigned long currentMillis = millis(); // Captura o tempo atual
+
+  // Verifica se o intervalo de leitura foi atingido
+  if (currentMillis - lastReadingTime >= readingInterval) {
+    // Atualiza o tempo da última leitura
+    lastReadingTime = currentMillis;
+
+    // Leitura dos sensores com tentativas de repetição para o DHT
+    sensors.requestTemperatures();
+    tempDS18B20 = sensors.getTempCByIndex(0);
+
+    for (int i = 0; i < 3; i++) {
+      tempDHT = dht.readTemperature();
+      humiDHT = dht.readHumidity();
+      if (!isnan(humiDHT) && !isnan(tempDHT)) break;
+      delay(1000);  // Tenta novamente após 1 segundo
+    }
+
+    if (isnan(humiDHT) || isnan(tempDHT)) {
+      Serial.println(F("Failed to read from DHT sensor after 3 attempts!"));
+      return;
+    }
+
+    Serial.print("DS18B20 Temp: ");
+    Serial.print(tempDS18B20);
+    Serial.print(" °C, DHT Temp: ");
+    Serial.print(tempDHT);
+    Serial.print(" °C, Humidity: ");
+    Serial.print(humiDHT);
+    Serial.println(" %");
+  }
+}
 
 // Função para salvar dados em CSV
 void saveDataToCSV(float data1, float data2, float data3) {
@@ -108,44 +146,28 @@ void setup() {
   // Configuração do botão push
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   attachInterrupt(BUTTON_PIN, handleButtonPress, FALLING);
+
+  pinMode(2, OUTPUT);
 }
 
 void loop() {
-  // Leitura dos sensores com tentativas de repetição para o DHT
-  sensors.requestTemperatures();
-  tempDS18B20 = sensors.getTempCByIndex(0);
-
-  for (int i = 0; i < 3; i++) {
-    tempDHT = dht.readTemperature();
-    humiDHT = dht.readHumidity();
-    if (!isnan(humiDHT) && !isnan(tempDHT)) break;
-    delay(1000);  // Tenta novamente após 1 segundo
-  }
-
-  if (isnan(humiDHT) || isnan(tempDHT)) {
-    Serial.println(F("Failed to read from DHT sensor after 3 attempts!"));
-    return;
-  }
-
-  Serial.print("DS18B20 Temp: ");
-  Serial.print(tempDS18B20);
-  Serial.print(" °C, DHT Temp: ");
-  Serial.print(tempDHT);
-  Serial.print(" °C, Humidity: ");
-  Serial.print(humiDHT);
-  Serial.println(" %");
+  // Faz a leitura dos sensores
+  sensorReading();
 
   // Salva os dados em CSV
-  saveDataToCSV(tempDS18B20, tempDHT, humiDHT);
+  // saveDataToCSV(tempDS18B20, tempDHT, humiDHT);
 
   // Verifica se o botão foi pressionado
   if (buttonPressed) {
     buttonPressed = false;
     // Configura WiFi e servidor web
-    setupWiFiAndServer();
+    // setupWiFiAndServer();
     Serial.println("Button pressed! CSV file available for download.");
-  }
 
-  // Aguarda alguns segundos antes de realizar outra leitura
-  delay(2000);
+    if (digitalRead(2) == HIGH) {
+      digitalWrite(2, LOW);
+    } else {
+      digitalWrite(2, HIGH);
+    }
+  }
 }
