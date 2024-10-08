@@ -3,10 +3,8 @@
 #include <DallasTemperature.h>
 #include "DHT.h"
 #include "SPIFFS.h"
-#include "FS.h"
 #include <ESPAsyncWebServer.h>
 #include <ESPmDNS.h>
-#include <string.h>
 
 // Coisas do DS18B20 ================
 #define ONE_WIRE_BUS 4
@@ -110,6 +108,21 @@ void IRAM_ATTR handleButtonPress() {
   }
 }
 
+String removeCSVFile(String filename){
+  if (SPIFFS.exists(filename)) { // Verifica se o arquivo existe
+    if (SPIFFS.remove(filename)) { // Romove o arquivo passado
+      Serial.println("File removed");
+      return "File removed";
+    } else {
+      Serial.println("Failed to remove file");
+      return "Failed to remove file";
+    }
+  } else {
+    Serial.println("File not found");
+    return "File not found";
+  }   
+}
+
 // Função para configurar o WiFi e o servidor
 void setupWiFiAndServer() {
   WiFi.softAP(ssid, password);
@@ -130,6 +143,11 @@ void setupWiFiAndServer() {
   // Rota para download do arquivo CSV
   server.on("/download", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(SPIFFS, "/data.csv", "text/csv");
+  });
+  
+  // Rota para apagar do arquivo CSV
+  server.on("/remove", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", removeCSVFile("/data.csv").c_str());
   });
 
   server.begin();
